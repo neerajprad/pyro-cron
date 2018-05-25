@@ -1,3 +1,4 @@
 .benchmarks
 .cron
+data/*
 log/*
