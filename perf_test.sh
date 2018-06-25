@@ -12,53 +12,59 @@ function _cleanup() {
   fi
   [[ ${RETCODE} = 0 ]] && echo ${CURRENT_HEAD} >| ${REF_HEAD_FILE}
   [[ -d ${REF_TMP_DIR} ]] && rm -rf ${REF_TMP_DIR}
+
+  # reset cpuset
+  cset shield --reset
   exit ${RETCODE}
 }
 
 trap _cleanup EXIT
+
+# Define csets to isolate the job
+
+cset shield --cpu 15,43
 
 # Reference is with respect to the `dev` branch, by default.
 REF_HEAD="$1"
 BENCHMARK_FILE=tests/perf/test_benchmark.py
 REF_TMP_DIR=/home/npradhan/workspace/pyro-cron/.tmp_test_dir
 BENCHMARK_DIR=/home/npradhan/workspace/pyro-cron/.benchmarks
-VIRTUALENV=pyro-cron-27
-
-# Activate virtualenv
-source /home/npradhan/miniconda3/bin/activate "${VIRTUALENV}"
-# Use process time whenever possible to make timing more robust
-# inside of VMs or when running other processes.
-PY_VERSION=$(python -c 'import sys; print(sys.version_info[0])')
-if [[ ${PY_VERSION} = 2 ]]; then
-    TIMER=time.clock
-else
-    TIMER=time.process_time
-fi
+VIRTUALENV=/home/npradhan/miniconda3/envs/pyro-cron-36
 
 PERCENT_REGRESSION_FAILURE=10
 
 # clone the repo into the temporary directory and run benchmark tests
 # REF_HEAD could be a branch or a commit hash
 git clone https://github.com/uber/pyro.git ${REF_TMP_DIR}
-pip uninstall -y pyro-ppl
+${VIRTUALENV}/bin/pip uninstall -y pyro-ppl
 pushd ${REF_TMP_DIR}
-pip install -e .
+${VIRTUALENV}/bin/pip install -e .
 git checkout ${REF_HEAD}
 
 # Skip if benchmark utils are not on `dev` branch.
 if [ -e ${BENCHMARK_FILE} ]; then
-    pytest -vs tests/perf/test_benchmark.py --benchmark-save=${REF_HEAD} --benchmark-name=short \
+  cset shield -e ${VIRTUALENV}/bin/pytest -- \
+        -vs tests/perf/test_benchmark.py \
+        --benchmark-save=${REF_HEAD} \
+        --benchmark-name=short \
+        --benchmark-disable-gc \
+        --benchmark-warmup=on \
+	--benchmark-warmup-iterations=4 \
+	--benchmark-timer=time.process_time \
         --benchmark-columns=min,median,max --benchmark-sort=name \
-        --benchmark-storage=file://${BENCHMARK_DIR} \
-        --benchmark-timer ${TIMER}
+        --benchmark-storage=file://${BENCHMARK_DIR}
 fi
 
 # go back to the dev branch
 git checkout dev
 
 # Run benchmark comparison - fails if the min run time is 10% less than on the ref branch.
-pytest -vx tests/perf/test_benchmark.py --benchmark-compare \
+cset shield -e ${VIRTUALENV}/bin/pytest -- \
+       -vx tests/perf/test_benchmark.py --benchmark-compare \
+       --benchmark-disable-gc \
+       --benchmark-warmup=on \
+       --benchmark-warmup-iterations=4 \
+       --benchmark-timer=time.process_time \
        --benchmark-storage=file://${BENCHMARK_DIR} \
-       --benchmark-compare-fail=min:${PERCENT_REGRESSION_FAILURE}% \
-       --benchmark-name=short --benchmark-columns=min,median,max --benchmark-sort=name \
-       --benchmark-timer ${TIMER}
+       --benchmark-compare-fail=median:${PERCENT_REGRESSION_FAILURE}% \
+       --benchmark-name=short --benchmark-columns=min,median,max --benchmark-sort=name
