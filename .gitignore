@@ -1,4 +1,5 @@
 .benchmarks
 .cron
+.pytest_cache
 data/*
 log/*

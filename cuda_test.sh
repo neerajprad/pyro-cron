@@ -3,7 +3,7 @@
 set -xe
 
 WORKDIR=/home/npradhan/workspace/pyro-cron
-VIRTUALENV=pyro-cron-27
+VIRTUALENV=pyro-cron-36
 
 # On exit, go back to `dev` branch and remove `cron-jobs` branch
 function _cleanup() {
